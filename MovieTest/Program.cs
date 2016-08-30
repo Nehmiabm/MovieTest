@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -17,6 +18,7 @@ using NReco.CF.Taste.Model;
 using NReco.CF.Taste.Neighborhood;
 using NReco.CF.Taste.Recommender;
 using NReco.CF.Taste.Similarity;
+using System.Data.Odbc;
 
 namespace MovieTest
 {
@@ -64,11 +66,12 @@ namespace MovieTest
             }
         }
 
-        private static void RecommendMovies()
+        private static async void RecommendMovies()
         {
-           IDataModel model = new FileDataModel(@"C:\bigdata\MovieTweetings-master\latest\ratings2.csv");
+           //IDataModel model = new FileDataModel(@"C:\bigdata\MovieTweetings-master\latest\ratings2.csv");
            Console.WriteLine("Building model...");
-            //IDataModel model = GetMovieDataModel();
+            
+             IDataModel model = await GetMovieDataModel();
             Console.WriteLine("Building model done!");
             Console.WriteLine("Calculating Recommendation...");
             //Creating UserSimilarity object.
@@ -80,7 +83,7 @@ namespace MovieTest
             //Create UserRecomender
             IUserBasedRecommender recommender = new GenericUserBasedRecommender(model, userneighborhood, usersimilarity);
 
-            var recommendations = recommender.Recommend(2, 3);
+            var recommendations = recommender.Recommend(2, 10);
 
             foreach (IRecommendedItem recommendation in recommendations)
             {
@@ -143,37 +146,77 @@ namespace MovieTest
         }
 
 
-        public static IDataModel GetMovieDataModel()
+        public static async Task<IDataModel> GetMovieDataModel()
         {
-            FastByIDMap<IPreferenceArray> preferences = new FastByIDMap<IPreferenceArray>();
-
-            string conn = "Server=tcp:sqldatabasemovie.database.windows.net,1433;Initial Catalog=MovieDB;Persist Security Info=False;User ID=nehmia;Password=Password@123;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;";
-           INTAPS.RDBMS.DSP DBConnection = new INTAPS.RDBMS.DSP(INTAPS.RDBMS.DBProvider.MSSQLSERVER)
-            { ConnectionString = conn };
-
-          //  Console.WriteLine("Building model please wait...");
-
-            var users = DBConnection.GetSTRArrayByFilter<Users>("userID<200");
-           
-            foreach (Users user in users)
+            IDataModel model = null;
+            using (OdbcConnection conn =
+                   new OdbcConnection(connectionString: "DSN=Sample Microsoft Hive DSN;UID=admin;PWD=Password@123"))
             {
-                var userRatings = DBConnection.GetSTRArrayByFilter<Rating>("userID=" + user.userID);
-                IPreferenceArray usePref = new GenericUserPreferenceArray(userRatings.Length);
-                int i = 0;
-                foreach (Rating rating in userRatings)   //build preferences
+                FastByIDMap<IPreferenceArray> preferences = new FastByIDMap<IPreferenceArray>();
+                conn.OpenAsync().Wait();
+                OdbcCommand ratingCommand = conn.CreateCommand();
+                ratingCommand.CommandText = "SELECT * FROM rating;";
+               
+                DbDataReader ratingReader = await ratingCommand.ExecuteReaderAsync();
+                
+                Console.WriteLine("...........................................");
+                int userID = 0;
+                int loop = 0;
+                List<object[]> templist = new List<object[]>();
+                while (ratingReader.Read())
                 {
-                    if (i == 0)
-                        usePref.SetUserID(i, rating.userID);
-                    usePref.SetItemID(i,rating.movieID);
-                    usePref.SetValue(i, rating.rating);
-                    i++;
+                    object[] uval = new object[3];
+                    uval[0] = ratingReader.GetInt32(0); //user
+                    uval[1] = ratingReader["movieid"]; //movieid
+                    uval[2] = ratingReader.GetInt32(2); //rating
+
+
+                    if (userID != ratingReader.GetInt32(0) && loop++ != 0)
+                    {
+                        IPreferenceArray usePref = new GenericUserPreferenceArray(templist.Count);
+                        int j = 0;
+                        foreach (var urate in templist)
+                        {
+                            if (j == 0)
+                                usePref.SetUserID(0, Convert.ToInt32(urate[0]));
+                            usePref.SetItemID(j, Convert.ToInt64(urate[1]));
+                            usePref.SetValue(j, Convert.ToInt64(urate[2]));
+                            j++;
+                        }
+
+                        preferences.Put(userID, usePref);
+                        templist = new List<object[]>();
+                    }
+                    else
+                    {
+                        templist.Add(uval);
+                    }
+
+                    userID = ratingReader.GetInt32(0);
+                   // Console.WriteLine(userReader.GetInt32(0) + ".........  " + userReader.GetString(1));
                 }
-                preferences.Put(user.userID, usePref);
+
+                if (templist.Count > 0)
+                {
+                    IPreferenceArray usePref = new GenericUserPreferenceArray(templist.Count);
+                    int k = 0;
+                    foreach (var urate in templist)
+                    {
+                        if (k == 0)
+                            usePref.SetUserID(0, Convert.ToInt32(urate[0]));
+                        usePref.SetItemID(k, Convert.ToInt64(urate[1]));
+                        usePref.SetValue(k, Convert.ToInt64(urate[2]));
+                        k++;
+                    }
+
+                    preferences.Put(userID, usePref);
+                }
+
+                 model=new GenericDataModel(preferences);
+            
             }
-
-            IDataModel model= new GenericDataModel(preferences);
-
             return model;
+            
         }
 
         [SingleTableObject]

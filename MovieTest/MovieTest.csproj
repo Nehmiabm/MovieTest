@@ -146,11 +146,10 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="NReco.Recommender">
-      <HintPath>..\..\..\..\..\..\..\bigdata\NReco.Recommender\lib\NReco.Recommender.dll</HintPath>
+      <HintPath>..\lib\NReco.Recommender.dll</HintPath>
     </Reference>
-    <Reference Include="RDBMSHelper, Version=2.0.4898.27619, Culture=neutral, processorArchitecture=x86">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\RDBMSHelper.dll</HintPath>
+    <Reference Include="RDBMSHelper">
+      <HintPath>..\lib\RDBMSHelper.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
